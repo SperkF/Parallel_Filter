@@ -1,0 +1,6 @@
+
+#this is a commetn
+
+#ignore all .txt and alll .ppm files
+*.ppm
+*.txt
