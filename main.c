@@ -11,17 +11,23 @@
 #include <unistd.h>  //getopt()
 #include <string.h> //strncmp(),..
 #include <sys/sysinfo.h> // get_nprocs()
+#include "dataTypes.h"
 /*
 * DEFINES
 */
-#define FS_DEBUG 1
 #define SANE_NO_OF_PROCS 6
 /*
 * PROTOTYPES
 */
 void print_help (void);
-
-
+//s_pixel *get_ppm(FILE *input_ppm, u_int *img_depth, u_int *img_width, u_int *img_height);
+s_pixel *read_from_ppm(FILE *input_ppm, u_int *color_depth, u_int *width, u_int *height);
+s_pixel *create_frame(s_pixel *ppm_as_array, const u_int img_height, const u_int img_width);
+s_pixel *apply_kernel(const s_pixel *original_array, const int *kernel, const u_int height, const u_int width, const u_int color_depth);
+void print_ppm(FILE *output_ppm, s_pixel *array, const u_int color_depth, const u_int width, const u_int height, const int *kernel);
+/*
+* MAIN PROGRAM
+*/
 int main (int argc, char *argv[])
 {
 	int getopt_return = 0;
@@ -48,6 +54,9 @@ int main (int argc, char *argv[])
 	 char *strtod_input = NULL;
 //to work with strtol()
 	 char *strtol_end = NULL;
+//varaibles to process ppm picture
+	 s_pixel *ppm_array = NULL;
+	 u_int img_depth = 0, img_width = 0, img_height = 0;
 
 	//-------getopt() to process input---------------------
 	//run getopt till getopt() return = -1, otherwise returns value of identifier [ASCII Table value]
@@ -212,16 +221,34 @@ int main (int argc, char *argv[])
 		fprintf(stdout,"**DEBUG**\tNo_procs: %d, p_flag: %d\n",No_procs, p_flag);
 	#endif
 	//get input_ppm content
-	get_ppm();
+	ppm_array = (s_pixel*)read_from_ppm(input_ppm, &img_depth, &img_width, &img_height);
+	if(ppm_array == NULL)
+	{
+		fprintf(stderr,"**ERROR**:\t read_from_ppm() failed\n");
+		exit(EXIT_FAILURE);
+	}
+
+
+	/***ppm_array = get_ppm(int img_heigth, int img_width, int img_depth);**/
+	ppm_array = create_frame(ppm_array, img_height, img_width);
+	if(ppm_array == NULL)
+	{
+		fprintf(stderr,"**ERROR**:\t create_frame() failed\n");
+		exit(EXIT_FAILURE);
+	}
+
+	ppm_array = apply_kernel(ppm_array, &kernel[0], img_height, img_width, img_depth);
 	//creat frame around input_ppm
-	frame_ppm();
+	/**frame_ppm(int frame_col, s_pixel *ppm_array);**/
 	//try send pixel-packages to Master_Slave-msq
-	
+
 	//try to retrieve-package from Slave_Master-msq
 		//count each retieved pacakge ++ ->if count is pixelcount ->kill children, close msq, print ppm, close all alloc mem
 
 	//save content of filtered image to output_ppm
-	print_ppm();
+	/**print_ppm(FILE *output_ppm, s_pixel *ppm_array, int img_depth, int img_width, height, kernel);**/
+	print_ppm(output_ppm, ppm_array, img_depth, img_width, img_height, &kernel[0]);
+
 
 
 	return 0;
