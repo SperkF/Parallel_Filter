@@ -12,7 +12,6 @@
 
 #define MAX_STRING_LEN 20
 
-double value_of(u_int array_element); //function takes value of array and retunrns it ->this way original array value is left unmanipulated when kernel is run over it
 
 s_pixel filter(int *kernel, s_pixel *pixel,int color_depth)
 {
@@ -21,7 +20,7 @@ s_pixel filter(int *kernel, s_pixel *pixel,int color_depth)
 /*RED PIXEL*/
   for(int i = 0; i < 9; i++)
   {
-      value = (value_of((pixel + i)->red)/255) * *(kernel + i) + value;
+      value = ((double)((pixel + i)->red)/255) * *(kernel + i) + value;
   }
   value = round(value*255);
   if(value < 0)
@@ -34,7 +33,7 @@ s_pixel filter(int *kernel, s_pixel *pixel,int color_depth)
   /*GREEN PIXEL*/
     for(int i = 0; i < 9; i++)
     {
-        value = (value_of((pixel + i)->green)/255)* *(kernel + i) + value;
+        value = ((double)((pixel + i)->green)/255)* *(kernel + i) + value;
     }
     value = round(value*255);
     if(value < 0)
@@ -47,7 +46,7 @@ value = 0; //reset value
     /*BLUE PIXEL*/
       for(int i = 0; i < 9; i++)
       {
-          value = (value_of((pixel + i)->blue)/255) * *(kernel + i) + value;
+          value = ((double)((pixel + i)->blue)/255) * *(kernel + i) + value;
       }
       value = round(value*255);
       if(value < 0)
@@ -467,117 +466,6 @@ s_pixel *create_frame(s_pixel *unframed_ppm, const u_int img_height, const u_int
     }
     return h_ppm_with_frame;
 }
-
-
-/*
-
-s_pixel filter(const int *kernel, master_slave_mq_pkg *MS_message, const int color_depth)
-{
-  int value;
-  //calculate red value
-  value = round(\
-  MS_message.pixel_pkg[0]*kernel[0])
-}
-*/
-
-s_pixel *apply_kernel(const s_pixel *framed_ppm, const int *kernel, const u_int height, const u_int width, const u_int color_depth)
-{
-    #if FS_DEBUG
-        printf("apply_kernel() entered\n");
-        int cnt = 0, cnt2 = 0;
-    #endif
-    double new_col_val = 0;
-    s_pixel *filtered_ppm = NULL;
-    s_pixel *h_filtered_ppm = NULL; //to later be able to return first pos of manipulated array
-    filtered_ppm = calloc( ((width)*(height)) ,sizeof(s_pixel));
-    if(filtered_ppm == NULL)
-    {
-        fprintf(stderr,"ERROR: inside apply_kernel() calloc() for manipulated_array failed\n");
-        exit(EXIT_FAILURE);
-    }
-
-    h_filtered_ppm = filtered_ppm;
-    if(h_filtered_ppm == NULL)
-    {
-        fprintf(stderr,"ERROR: inside apply_kernel() pointer refference of help_manipulated_array to manipulated_array failed\n");
-        exit(EXIT_FAILURE);
-    }
-
-    for(u_int row = 1; row <= (height+2); row++)
-    {
-        for(u_int col = 1; col <= (width+2); col++)
-        {
-          if(row != 1 && row != (height+2) && col != 1 && col != (width+2))
-          {
-        //calcualte for red value of pixel
-                new_col_val = round(
-                            ((value_of((framed_ppm-width-1)->red)/255) * (*(kernel)) + (value_of((framed_ppm-width)->red)/255) * (*(kernel+3)) + (value_of((framed_ppm-width+1)->red)/255) * (*(kernel+6)) \
-                            +(value_of((framed_ppm-1)->red)/255) * (*(kernel+1)) + (value_of((framed_ppm)->red)/255) * (*(kernel+4)) + (value_of((framed_ppm+1)->red)/255) * (*(kernel+7)) \
-                            +(value_of((framed_ppm+width-1)->red)/255) * (*(kernel+2)) +(value_of((framed_ppm+width)->red)/255) * (*(kernel+5)) + (value_of((framed_ppm+width+1)->red)/255) * (*(kernel+8)) \
-                            )*255 \
-                                );
-            //if color value is neagtiv
-                if( new_col_val < 0)
-                    filtered_ppm->red = 0;
-            //else if color value is bigger than max color_depth
-                if( new_col_val > color_depth)
-                    filtered_ppm->red = color_depth;
-            //neither smaller than 0, nor bigger than color_depth ->save value direct
-                if( 0 < new_col_val && new_col_val < color_depth)
-                    filtered_ppm->red = (u_int)new_col_val;
-
-        //calcualte for green value of pixel
-                new_col_val = round(
-                            ((value_of((framed_ppm-width-1)->green)/255) * (*(kernel)) + (value_of((framed_ppm-width)->green)/255) * (*(kernel+3)) + (value_of((framed_ppm-width+1)->green)/255) * (*(kernel+6)) \
-                            +(value_of((framed_ppm-1)->green)/255) * (*(kernel+1)) + (value_of((framed_ppm)->green)/255) * (*(kernel+4)) + (value_of((framed_ppm+1)->green)/255) * (*(kernel+7)) \
-                            +(value_of((framed_ppm+width-1)->green)/255) * (*(kernel+2)) +(value_of((framed_ppm+width)->green)/255) * (*(kernel+5)) + (value_of((framed_ppm+width+1)->green)/255) * (*(kernel+8)) \
-                            )*255 \
-                                );
-            //if color value is neagtiv
-                if( new_col_val < 0)
-                    filtered_ppm->green = 0;
-            //else if color value is bigger than max color_depth
-                if( new_col_val > color_depth)
-                    filtered_ppm->green = color_depth;
-            //neither smaller than 0, nor bigger than color_depth ->save value direct
-                if( 0 < new_col_val && new_col_val < color_depth)
-                    filtered_ppm->green = (u_int)new_col_val;
-
-        //calcualte for blue value of pixel
-                new_col_val = round(
-                            ((value_of((framed_ppm-width-1)->blue)/255) * (*(kernel)) + (value_of((framed_ppm-width)->blue)/255) * (*(kernel+3)) + (value_of((framed_ppm-width+1)->blue)/255) * (*(kernel+6)) \
-                            +(value_of((framed_ppm-1)->blue)/255) * (*(kernel+1)) + (value_of((framed_ppm)->blue)/255) * (*(kernel+4)) + (value_of((framed_ppm+1)->blue)/255) * (*(kernel+7)) \
-                            +(value_of((framed_ppm+width-1)->blue)/255) * (*(kernel+2)) +(value_of((framed_ppm+width)->blue)/255) * (*(kernel+5)) + (value_of((framed_ppm+width+1)->blue)/255) * (*(kernel+8)) \
-                            )*255 \
-                                );
-            //if color value is neagtiv
-                if( new_col_val < 0)
-                    filtered_ppm->blue = 0;
-            //else if color value is bigger than max color_depth
-                if( new_col_val > color_depth)
-                    filtered_ppm->blue = color_depth;
-            //neither smaller than 0, nor bigger than color_depth ->save value direct
-                if( 0 < new_col_val && new_col_val < color_depth)
-                    filtered_ppm->blue = (u_int)new_col_val;
-                filtered_ppm++; //jump one position further in framed ppm
-            }
-            framed_ppm++; //jump one pos further in unframed ppm
-        }
-    }
-    return h_filtered_ppm; //first pos of manipulated_array
-}
-
-//function takes value of array and retunrns it ->this way original array value is left unmanipulated when kernel is run over it
-double value_of(u_int array_element)
-{
-    return array_element;
-}
-
-
-
-
-
-
 
 
 
