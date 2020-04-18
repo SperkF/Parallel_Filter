@@ -1,4 +1,12 @@
-
+/*
+* Message Queues are persitent, which means that if thy are not closed explicitly, they stay around even after program termination
+* In the terminal: use ipcs to get info on opend message-quese; and ipcrm -X key or ipcrm -x ip to remove unwanted message-queues
+* (can be looked up in OneNote)
+*
+*
+*
+*
+*/
 
 /*
 * INCLUDES
@@ -8,9 +16,12 @@
 #include <error.h>
 #include <errno.h> //perror(),..
 #include <ctype.h> //isdigit(),..
-#include <unistd.h>  //getopt()
+#include <unistd.h>  //getopt(), fork()
 #include <string.h> //strncmp(),..
+#include <sys/sysinfo.h> //get_nprocs() and get_nprocs_conf()
 #include <sys/sysinfo.h> // get_nprocs()
+#include <sys/types.h> // for message-queue key_type,..
+#include <sys/msg.h>   // for message-queue
 #include "dataTypes.h"
 /*
 * DEFINES
@@ -21,10 +32,10 @@
 */
 void print_help (void);
 //s_pixel *get_ppm(FILE *input_ppm, u_int *img_depth, u_int *img_width, u_int *img_height);
-s_pixel *read_from_ppm(FILE *input_ppm, u_int *color_depth, u_int *width, u_int *height);
-s_pixel *create_frame(s_pixel *ppm_as_array, const u_int img_height, const u_int img_width);
-s_pixel *apply_kernel(const s_pixel *original_array, const int *kernel, const u_int height, const u_int width, const u_int color_depth);
-void print_ppm(FILE *output_ppm, s_pixel *array, const u_int color_depth, const u_int width, const u_int height, const int *kernel);
+s_pixel *read_from_ppm (FILE *input_ppm, u_int *color_depth, u_int *width, u_int *height);
+s_pixel *create_frame (s_pixel *ppm_as_array, const u_int img_height, const u_int img_width);
+s_pixel *apply_kernel (const s_pixel *original_array, const int *kernel, const u_int height, const u_int width, const u_int color_depth);
+void print_ppm (FILE *output_ppm, s_pixel *array, const u_int color_depth, const u_int width, const u_int height, const int *kernel);
 /*
 * MAIN PROGRAM
 */
@@ -33,7 +44,7 @@ int main (int argc, char *argv[])
 	int getopt_return = 0;
 	FILE *input_ppm = NULL; //FILE pointer to input-ppm file (image we want to filter)
 	FILE *output_ppm = NULL; //FILE pointer to ppm-file that we will create and write our filtered image too
- //set to 1 if user has entered -p
+//set to 1 if user has entered -p
 	int p_flag = 0;
 //used to calculate wether or not correct arguments were entered
 	int checksum = 0;
@@ -46,17 +57,17 @@ int main (int argc, char *argv[])
 //amoutn of processes to create for parallelisation
 	int No_procs = 0;
 //variables used to process kernel
-	int kernel[9] = {0, 0, 0 ,0 , 0 , 0, 0, 0, 0};
+	int kernel[9] = {0, 0, 0, 0, 0, 0, 0, 0, 0};
 	int i = 0, digit_cnt = 0, comma_cnt = 0;
 	int error_flag = 0;
 //to work with strtod()
-	 char *strtod_error = NULL;
-	 char *strtod_input = NULL;
+	char *strtod_error = NULL;
+	char *strtod_input = NULL;
 //to work with strtol()
-	 char *strtol_end = NULL;
+	char *strtol_end = NULL;
 //varaibles to process ppm picture
-	 s_pixel *ppm_array = NULL;
-	 u_int img_depth = 0, img_width = 0, img_height = 0;
+	s_pixel *ppm_array = NULL;
+	u_int img_depth = 0, img_width = 0, img_height = 0;
 
 	//-------getopt() to process input---------------------
 	//run getopt till getopt() return = -1, otherwise returns value of identifier [ASCII Table value]
@@ -70,89 +81,79 @@ int main (int argc, char *argv[])
 			checksum = checksum + 1;
 			p_flag = 1; //set flag ->used later on in main
 			errno = 0; //reset errno previous to function call
-			No_procs = (int)strtol(optarg,&strtol_end,10);
-			if(*strtol_end != '\0')
-			{
-				fprintf(stderr,"--ERROR--\t %c is not a number",*strtol_end);
+			No_procs = (int) strtol (optarg, &strtol_end, 10);
+			if (*strtol_end != '\0') {
+				fprintf (stderr, "--ERROR--\t %c is not a number", *strtol_end);
 			}
 			//do some furhter errorchecking
 			//value was to big, to small, or NULL-pointer was passed to strtol
-	        if(errno != 0)
-					{
-	            perror("strtol(-p), perror:");
-					}
+			if (errno != 0) {
+				perror ("strtol(-p), perror:");
+			}
 
-						//empty string was passed to strtol()
-		        if(*optarg == '\0')
-						{
-	            fprintf(stderr,"--ERROR--\t empty pointer was passed to strtol()\n");
-	        		print_help();
-						}
-					if(No_procs > SANE_NO_OF_PROCS || No_procs < 0)
-					{
-						fprintf(stderr,"--ERROR--\t %d is an insane number of proceses\n",No_procs);
-						fprintf(stderr,"--ERROR--\t\tNOTE: max ammoutn of processes: %d\n",(int)SANE_NO_OF_PROCS);
-						fprintf(stderr,"--ERROR--\t\tNOTE: min ammoutn of processes: 0 or more\n");
-						print_help();
-					}
+			//empty string was passed to strtol()
+			if (*optarg == '\0') {
+				fprintf (stderr, "--ERROR--\t empty pointer was passed to strtol()\n");
+				print_help();
+			}
+			if (No_procs > SANE_NO_OF_PROCS || No_procs < 0) {
+				fprintf (stderr, "--ERROR--\t %d is an insane number of proceses\n", No_procs);
+				fprintf (stderr, "--ERROR--\t\tNOTE: max ammoutn of processes: %d\n", (int) SANE_NO_OF_PROCS);
+				fprintf (stderr, "--ERROR--\t\tNOTE: min ammoutn of processes: 0 or more\n");
+				print_help();
+			}
+#ifdef FS_DEBUG
+			fprintf (stdout, "**DEBUG**\tRun with user defined procs, No_procs: %d\n", No_procs);
+#endif
 
 			break;
 		//----------------------------------------------------------------------
 		//identifier -k.. string that follows is filter kernel
 		case 'k':
 			checksum = checksum + 2;
-		//check if 9 numbers and 8 ',' were entered
+			//check if 9 numbers and 8 ',' were entered
 
-			 while(optarg[i] != '\0')  //parse throug optarg ->NULL-terminated string
-			 {
-			 // is not a number && is not '-' && is not ',' ->ERROR
-					 if(isdigit((int)optarg[i]) == 0 && optarg[i] != '-' && optarg[i] != ',')
-					 {
-							 fprintf(stderr,"--ERROR--\t character %c of kernel can`t be processed\n",optarg[i]);
-							 exit(EXIT_FAILURE);
-					 }
-					 if(isdigit((int)optarg[i]))
-					 {
-							 digit_cnt++;
-					 }
-					 if(optarg[i] == ',')
-					 {
-							 comma_cnt++;
-					 }
-					 i++; //move to next array position
-			 }
-			 if(comma_cnt != 8)
-			 {
-					 fprintf(stderr,"--ERROR--\t kernel contained the wrong amomount of commas to seperate the numbers\n");
-					 error_flag = 1;
-			 }
-			 if(digit_cnt != 9)
-			 {
-					 fprintf(stderr,"--ERROR--\t kernel contained the wrong ammount of numbers\n");
-					 error_flag = 1;
-			 }
-			 if(error_flag == 1) //this way both errors can be displayed, otherwise only the first one would get noticed
-			 {
+			while (optarg[i] != '\0') { //parse throug optarg ->NULL-terminated string
+				// is not a number && is not '-' && is not ',' ->ERROR
+				if (isdigit ( (int) optarg[i]) == 0 && optarg[i] != '-' && optarg[i] != ',') {
+					fprintf (stderr, "--ERROR--\t character %c of kernel can`t be processed\n", optarg[i]);
+					exit (EXIT_FAILURE);
+				}
+				if (isdigit ( (int) optarg[i])) {
+					digit_cnt++;
+				}
+				if (optarg[i] == ',') {
+					comma_cnt++;
+				}
+				i++; //move to next array position
+			}
+			if (comma_cnt != 8) {
+				fprintf (stderr, "--ERROR--\t kernel contained the wrong amomount of commas to seperate the numbers\n");
+				error_flag = 1;
+			}
+			if (digit_cnt != 9) {
+				fprintf (stderr, "--ERROR--\t kernel contained the wrong ammount of numbers\n");
+				error_flag = 1;
+			}
+			if (error_flag == 1) { //this way both errors can be displayed, otherwise only the first one would get noticed
 				print_help();
-			 }
-	 //now that we know that the kernel-string is of corect syntax, we process it
-	 //no more errorchecking for strtod() required
-			 i = 0; //reset array position
-			 strtod_input = &optarg[0];
-			 while(i < 9)
-			 {
-					 kernel[i] = (int)strtod(strtod_input, &strtod_error);
-					 #if FS_DEBUG
-							 printf("**DEBUG**\tinside while():%i || kernel: %i || strtod_error: %c\n",i, kernel[i], *strtod_error);
-					 #endif
+			}
+			//now that we know that the kernel-string is of corect syntax, we process it
+			//no more errorchecking for strtod() required
+			i = 0; //reset array position
+			strtod_input = &optarg[0];
+			while (i < 9) {
+				kernel[i] = (int) strtod (strtod_input, &strtod_error);
+#if FS_DEBUG
+				printf ("**DEBUG**\tinside while():%i || kernel: %i || strtod_error: %c\n", i, kernel[i], *strtod_error);
+#endif
 //if a comma is encountered ->move pointer and increment i; also incrment by one if string-termination('\0') is encountered
-					 if(*strtod_error == ',' || *strtod_error == '.' || *strtod_error == '\0')
-					 {
-							 strtod_error++; //move pointer by one position
-							 strtod_input = strtod_error; //let input pointer point to new position
-							 i++;
-					 }
-			 }
+				if (*strtod_error == ',' || *strtod_error == '.' || *strtod_error == '\0') {
+					strtod_error++; //move pointer by one position
+					strtod_input = strtod_error; //let input pointer point to new position
+					i++;
+				}
+			}
 
 			break;
 		//----------------------------------------------------------------------
@@ -165,7 +166,7 @@ int main (int argc, char *argv[])
 				exit (EXIT_FAILURE);
 			}
 #if FS_DEBUG
-				fprintf (stdout, "**DEBUG**\tfopen(%s,'r') of input_ppm file worked\n",optarg);
+			fprintf (stdout, "**DEBUG**\tfopen(%s,'r') of input_ppm file worked\n", optarg);
 #endif
 			break;
 		//----------------------------------------------------------------------
@@ -190,9 +191,9 @@ int main (int argc, char *argv[])
 				fprintf (stderr, "--ERROR--\t fopen(%s,'w') for output_ppm failed\n", optarg);
 				exit (EXIT_FAILURE);
 			}
-			#if FS_DEBUG
-							fprintf (stdout, "**DEBUG**\tfopen(%s,'w') created output-file\n",optarg);
-			#endif
+#if FS_DEBUG
+			fprintf (stdout, "**DEBUG**\tfopen(%s,'w') created output-file\n", optarg);
+#endif
 			break;
 		//----------------------------------------------------------------------
 		//identifier -h... print helpmessage
@@ -206,52 +207,146 @@ int main (int argc, char *argv[])
 			print_help();
 		}
 	//check for correct input
-		if(checksum < 6)
-		{
-			fprintf(stderr,"--ERROR--\t insuficient arguments to progam\n");
-			print_help();
-		}
+	if (checksum < 6) {
+		fprintf (stderr, "--ERROR--\t insuficient arguments to progam\n");
+		print_help();
+	}
 	/*set No_procs to system-core number if user has not specified
 	 how many child processes he wants to creat, ->has not provided -p*/
-	 if(p_flag = 0)
-	 {
-		 No_procs = get_nprocs(); /*return number of processors(cores) configured on system*/
-	 }
-	 #ifdef FS_DEBUG
-		fprintf(stdout,"**DEBUG**\tNo_procs: %d, p_flag: %d\n",No_procs, p_flag);
-	#endif
-	//get input_ppm content
-	ppm_array = (s_pixel*)read_from_ppm(input_ppm, &img_depth, &img_width, &img_height);
-	if(ppm_array == NULL)
-	{
-		fprintf(stderr,"**ERROR**:\t read_from_ppm() failed\n");
-		exit(EXIT_FAILURE);
+	if (p_flag == 0) {
+		No_procs = get_nprocs(); /*return number of processors(cores) configured on system*/
+#if FS_DEBUG
+		fprintf (stdout, "**DEBGU**\tRun with system defined procs, No_procs: %d\n", No_procs);
+#endif
 	}
 
+	//get input_ppm content
+	ppm_array = (s_pixel*) read_from_ppm (input_ppm, &img_depth, &img_width, &img_height);
+	if (ppm_array == NULL) {
+		fprintf (stderr, "**ERROR**:\t read_from_ppm() failed\n");
+		exit (EXIT_FAILURE);
+	}
+#if FS_DEBUG
+	FILE *debug_input = NULL;
+	debug_input = fopen ("debug_input.ppm", "w");
+	print_ppm (debug_input, ppm_array, img_depth, img_width, img_height, &kernel[0]);
+	//fclose(debug_input);
+#endif
 
 	/***ppm_array = get_ppm(int img_heigth, int img_width, int img_depth);**/
-	ppm_array = create_frame(ppm_array, img_height, img_width);
-	if(ppm_array == NULL)
-	{
-		fprintf(stderr,"**ERROR**:\t create_frame() failed\n");
-		exit(EXIT_FAILURE);
+	ppm_array = create_frame (ppm_array, img_height, img_width);
+	if (ppm_array == NULL) {
+		fprintf (stderr, "**ERROR**:\t create_frame() failed\n");
+		exit (EXIT_FAILURE);
+	}
+#if FS_DEBUG
+	FILE *debug_framed = NULL;
+	debug_framed = fopen ("debug_framed.ppm", "w");
+	print_ppm (debug_framed, ppm_array, img_depth, img_width + 2, img_height + 2, &kernel[0]);
+	//fclose(debug_framed);
+#endif
+
+	/*setup everything for the message queues*/
+	int Master_Slave_Queue_ID = 0;
+	int Slave_Master_Queue_ID = 0;
+	key_t mq_key = IPC_PRIVATE; //we are guaranteed to get a unique msq-key (no "collision" with other msqs on the system)
+	int mq_perms = 0666; //all rw-, no sticky bit -> - rw- rw- rw- //<sticky> <usr> <grp> <oth>
+	int mq_flags = IPC_CREAT | IPC_EXCL; //create msq exclusive
+	typedef struct {
+		long mtype;
+		s_pixel pixel_pkg[9]; //pixel package to filter
+	} mq_pkg;
+	/*create message queue* ->dont forget to destroy them before termination*/
+	Master_Slave_Queue_ID = msgget (mq_key, mq_perms | mq_flags);
+	if (Master_Slave_Queue_ID == -1) {
+		fprintf (stderr, "**ERROR**:\tMaster->Slave MQ failed\n");
+		if (msgctl (Master_Slave_Queue_ID, IPC_RMID, NULL) < 0) {
+			fprintf (stderr, "**ERROR**\t close of MQ failed, lookup with ipcs and close manaly with ipcrm -x ip\n");
+		}
+		exit (EXIT_FAILURE);
+	}
+	Slave_Master_Queue_ID = msgget (mq_key, mq_perms | mq_flags);
+	if (Slave_Master_Queue_ID == -1) {
+		fprintf (stderr, "**ERROR**:\tSlave->Master MQ failed\n");
+		if (msgctl (Slave_Master_Queue_ID, IPC_RMID, NULL) < 0) {
+			fprintf (stderr, "**ERROR**\t close of MQ failed, lookup with ipcs and close manaly with ipcrm -x ip\n");
+		}
+		exit (EXIT_FAILURE);
 	}
 
-	ppm_array = apply_kernel(ppm_array, &kernel[0], img_height, img_width, img_depth);
-	//creat frame around input_ppm
-	/**frame_ppm(int frame_col, s_pixel *ppm_array);**/
-	//try send pixel-packages to Master_Slave-msq
+	/******************************************/
+	if ( (printf ("HALLO WELT\n")) < 0) {
+		fprintf (stderr, "ERROR\n");
+		//two opened message ques, close both on error
+		if ( (msgctl (Master_Slave_Queue_ID, IPC_RMID, NULL) < 0) || \
+		     (msgctl (Slave_Master_Queue_ID, IPC_RMID, NULL) < 0)) {
+			fprintf (stderr, "**ERROR**\t close of MQ failed, lookup with ipcs and close manaly with ipcrm -x ip\n");
+		}
+		exit (EXIT_FAILURE);
+	}
+	/******************************************/
 
-	//try to retrieve-package from Slave_Master-msq
-		//count each retieved pacakge ++ ->if count is pixelcount ->kill children, close msq, print ppm, close all alloc mem
 
-	//save content of filtered image to output_ppm
-	/**print_ppm(FILE *output_ppm, s_pixel *ppm_array, int img_depth, int img_width, height, kernel);**/
-	print_ppm(output_ppm, ppm_array, img_depth, img_width, img_height, &kernel[0]);
+	/*fork() to create child processes*/
+//child_PID takes pid of forked-off child (No_procs ammount of children will be created)
+	pid_t *child_PID = NULL;
+	child_PID = (pid_t*) calloc (No_procs, sizeof (pid_t));
+	if (child_PID == NULL) {
+		fprintf (stderr, "calloc for PID_child failed\n");
+		exit (EXIT_FAILURE);
+	}
+
+//fork No_porcs times
+	for (int i = 0; i < No_procs; i++) {
+		switch (* (child_PID + i) = fork()) {
+		/**************************** ERROR **************************************************/
+		case -1:		/*fork() failed*/
+			fprintf (stderr, "fork %d failed\n", i);
+			break;
+
+		/**************************** CHILD **************************************************/
+		case 0:			/*we are inside child*/
+#if FS_DEBUG
+			printf ("#child\t**DEBUG**\tchild %d with PID: %ld created\n", i, (long) getpid());
+#endif
+			//should I setup handler for SIGTERM??
+			while (1) { //run loop and calcualte pixels till you get terminated via SIGTERM or SIGKILL
+
+
+			}
+			break;
+
+		/***************************** PARENT ***********************************************/
+		default:		/*no error + not inside child ->must be inside parent*/
+			continue; //exit switch and run for loop agein
+
+		}
+		printf ("inside for-loop\n");
+	}
+}
+
+//enter for loop to send/recieve packages to/from children
+for (int i = 0; i < (img_width * img_height); i++)
+{
+	//send pixel-packages to Master_Slave-msq till MQ is full
+
+	//read pixel-packages from Slave_Master -msq till MQ is empty
+
+}
+
+//send SIGTERM to children and wait for their termination + check termination-status
+//loop for No_procs
+//kill(*(child_PID + i, SIGTERM);
+//waitpid(); ->check if terminated proper and term cause was SIGTERM
+
+
+//save content of filtered image to output_ppm
+/**print_ppm(FILE *output_ppm, s_pixel *ppm_array, int img_depth, int img_width, height, kernel);**/
+print_ppm (output_ppm, ppm_array, img_depth, img_width, img_height, &kernel[0]);
 
 
 
-	return 0;
+return 0;
 
 }
 

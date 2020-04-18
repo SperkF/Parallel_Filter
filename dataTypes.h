@@ -5,7 +5,7 @@
 * DEFINES used in mulitple files
 */
 #define FS_DEBUG 1
-
+#define KERNEL_FS_DEBUG 1
 
 /*
 * USER-DEFINED DATATYPES
@@ -23,6 +23,7 @@ typedef struct{
   int width;
   int height;
 } s_img;
+
 
 
 #endif //_dataTypes_
