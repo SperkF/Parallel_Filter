@@ -24,6 +24,16 @@ typedef struct{
   int height;
 } s_img;
 
+typedef struct {
+  long mtype;
+  int pixel_index;
+  s_pixel pixel_pkg[9]; //pixel package to filter
+} master_slave_mq_pkg;
 
+typedef struct {
+  long mtype;
+  int pixel_index;
+  s_pixel filtered_pixel; //pixel package to filter
+} slave_master_mq_pkg;
 
 #endif //_dataTypes_
