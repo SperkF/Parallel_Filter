@@ -22,6 +22,8 @@
 #include <sys/sysinfo.h> // get_nprocs()
 #include <sys/types.h> // for message-queue key_type,..
 #include <sys/msg.h>   // for message-queue
+#include <signal.h> //kill()
+#include <sys/wait.h> //waitpid()
 #include "dataTypes.h"
 /*
 * DEFINES
@@ -36,6 +38,7 @@ s_pixel *read_from_ppm (FILE *input_ppm, u_int *color_depth, u_int *width, u_int
 s_pixel *create_frame (s_pixel *ppm_as_array, const u_int img_height, const u_int img_width);
 s_pixel *apply_kernel (const s_pixel *original_array, const int *kernel, const u_int height, const u_int width, const u_int color_depth);
 void print_ppm (FILE *output_ppm, s_pixel *array, const u_int color_depth, const u_int width, const u_int height, const int *kernel);
+s_pixel filter(int *kernel, s_pixel *pixel,int color_depth);
 /*
 * MAIN PROGRAM
 */
@@ -308,23 +311,29 @@ int main (int argc, char *argv[])
 								{
 									if(errno != EAGAIN) //SM M-queue is empty
 									{
-										fprintf(stderr,"--ERROR--\treading from Slave_Master M-queue failed\n");
+										#if FS_DEBUG
+											fprintf(stderr,"--ERROR--\tread from MAster_Slave MQ failed in child PID:%ld terminated now\n",(long)getpid());
+										#endif
 										//close msqs
 										exit(EXIT_FAILURE);
 									}
 								}
 								//calculate pixel
-								//SM_message.filtered_pixel = filter(&kernel[0], &MS_message);
 								SM_message.pixel_index = MS_message.pixel_index;
-								SM_message.filtered_pixel = MS_message.pixel_pkg[4]; //just echo image
+								SM_message.filtered_pixel = filter(&kernel[0], MS_message.pixel_pkg, img_depth);
+								//SM_message.filtered_pixel = filter(&kernel[0], &MS_message);
+							//	SM_message.pixel_index = MS_message.pixel_index;
+							//	SM_message.filtered_pixel = MS_message.pixel_pkg[4]; //just echo image
 								//return filtered pixel
 								errno = 0;
 								if( (msgsnd(Slave_Master_Queue_ID, &SM_message, (sizeof(SM_message) - sizeof(long)), 0)) < 0)
 								{
-									if(errno != EAGAIN) //MS message queue is full
+									if(errno != EAGAIN)
 									{
-										fprintf(stderr,"--ERROR--\treading from Slave_Master M-queue failed\n");
-										//close msqs
+										#if FS_DEBUG
+											fprintf(stderr,"--ERROR--\twrite tp Slave_Master MQ failed in child PID:%ld terminated now\n",(long)getpid());
+										#endif
+										//close msqs??
 										exit(EXIT_FAILURE);
 									}
 								}
@@ -350,7 +359,9 @@ int main (int argc, char *argv[])
 		/**************************** Master snd **************************************************/
 					case 0:			/*we are inside child*/
 						if(FS_DEBUG)
-							printf ("#master_snd\t**DEBUG**\tmaster_sendd; PID = %ld\n", i, (long) getpid());
+						{
+							printf ("#master_snd\t**DEBUG**\tmaster_send; PID = %ld\n", (long) getpid());
+						}
 							//send packages
 							//enter for loop to send/recieve packages to/from children
 							framed_ppm_array = framed_ppm_array+(img_width+2)+1; //begin at first pixel inside frame
@@ -391,13 +402,18 @@ int main (int argc, char *argv[])
 								//read pixel-packages from Slave_Master -msq till MQ is empty
 
 							}
-							printf("master_snd terminates\n");
+							#if FS_DEBUG
+								printf("**DEBUG**\tmaster_snd terminates\n");
+							#endif
 							//master_send terminates succesfull if all packages were sent
-							exit(EXIT_SUCCESS);
+							raise(SIGTERM); //send yourself SIGTERM signal to terminate
 		/***************************** Master Receive ***********************************************/
 			default:		/*no error + not inside master_snd->must be inside master_rvc*/
 				break;
 	}
+
+//istall signal-handler for SIGCHLD-signal to catch all termiantions
+
 
 
 for(int i = 0; i < img_width*img_height; i++) //get all filtered pixels
@@ -412,15 +428,44 @@ for(int i = 0; i < img_width*img_height; i++) //get all filtered pixels
 		*(ppm_array + SM_message.pixel_index) = SM_message.filtered_pixel;
 	}
 }
-//send SIGTERM to children and wait for their termination + check termination-status
-//loop for No_procs
-//kill(*(child_PID + i, SIGTERM);
-//waitpid(); ->check if terminated proper and term cause was SIGTERM
-
 
 //save content of filtered image to output_ppm
 /**print_ppm(FILE *output_ppm, s_pixel *ppm_array, int img_depth, int img_width, height, kernel);**/
 print_ppm (output_ppm, ppm_array, img_depth, img_width, img_height, &kernel[0]);
+
+
+//master_snd terminates itself, the other child we need to terminate specifically
+for(int i = 0; i < No_procs; i++)
+{
+	kill(*(child_PID + i), SIGTERM); //terminate a random child proces
+}
+//in Signal handler auslagern den nach dem master fork installiere (maser_snd terminiert sich ja selbst)
+	//waitpid() in non-blocking-mode
+	int term_status = 0;
+	pid_t term_proc = 0;
+for(int j = 0; j < No_procs+1; j++)
+{
+	term_proc = waitpid(-1, &term_status, 0);
+	if(term_proc < 0)
+	{
+		fprintf(stderr,"--ERROR--\twaitpid() failed\n");
+	}
+//check if proces was terminated by SIGTERM-Signal
+	if( WIFSIGNALED(term_status) ) //proc was terminated by Signal
+	{
+		if(WTERMSIG(term_status) == SIGTERM) //all good proc terminated as expected
+		{
+			#if FS_DEBUG
+				fprintf(stdout,"**DEBUG**\tproces PID: %ld terminated as expected\n",(long)term_proc);
+				#endif
+		}
+		else{
+			fprintf(stderr,"--ERROR--\tproces PID: %ld terminated in unexpected manner\n",(long)term_proc);
+			exit(EXIT_FAILURE);
+		}
+	}
+	}
+
 
 //close message Queues
 	if( (msgctl(Master_Slave_Queue_ID, IPC_RMID, NULL)) < 0)

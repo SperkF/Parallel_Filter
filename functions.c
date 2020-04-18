@@ -14,6 +14,50 @@
 
 double value_of(u_int array_element); //function takes value of array and retunrns it ->this way original array value is left unmanipulated when kernel is run over it
 
+s_pixel filter(int *kernel, s_pixel *pixel,int color_depth)
+{
+  double value = 0;
+  s_pixel return_pixel;
+/*RED PIXEL*/
+  for(int i = 0; i < 9; i++)
+  {
+      value = (value_of((pixel + i)->red)/255) * *(kernel + i) + value;
+  }
+  value = round(value*255);
+  if(value < 0)
+    value = 0;
+  if(value > color_depth)
+    value = color_depth;
+  return_pixel.red = value;
+
+  value = 0; //reset value
+  /*GREEN PIXEL*/
+    for(int i = 0; i < 9; i++)
+    {
+        value = (value_of((pixel + i)->green)/255)* *(kernel + i) + value;
+    }
+    value = round(value*255);
+    if(value < 0)
+      value = 0;
+    if(value > color_depth)
+      value = color_depth;
+    return_pixel.green = value;
+
+value = 0; //reset value
+    /*BLUE PIXEL*/
+      for(int i = 0; i < 9; i++)
+      {
+          value = (value_of((pixel + i)->blue)/255) * *(kernel + i) + value;
+      }
+      value = round(value*255);
+      if(value < 0)
+        value = 0;
+      if(value > color_depth)
+        value = color_depth;
+      return_pixel.blue = value;
+
+      return return_pixel;
+}
 
 
 /*
