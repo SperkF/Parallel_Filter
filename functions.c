@@ -15,6 +15,7 @@
 double value_of(u_int array_element); //function takes value of array and retunrns it ->this way original array value is left unmanipulated when kernel is run over it
 
 
+
 /*
 *
 * INPUT
@@ -423,12 +424,18 @@ s_pixel *create_frame(s_pixel *unframed_ppm, const u_int img_height, const u_int
     return h_ppm_with_frame;
 }
 
+
 /*
-|1 2 3|     |a d g|
-|4 5 6| *   |b e h|
-|7 8 9|     |c f i|
-new_pixel_val = roud( ( (1/255)*a + (2/255)*b + (3/255)*c + (4/255)*d + (5/255)*e +(6/255)*f + (7/255)*g + (8/255)*h + (9/255)*i ) *255 )
+
+s_pixel filter(const int *kernel, master_slave_mq_pkg *MS_message, const int color_depth)
+{
+  int value;
+  //calculate red value
+  value = round(\
+  MS_message.pixel_pkg[0]*kernel[0])
+}
 */
+
 s_pixel *apply_kernel(const s_pixel *framed_ppm, const int *kernel, const u_int height, const u_int width, const u_int color_depth)
 {
     #if FS_DEBUG

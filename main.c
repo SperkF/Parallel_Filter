@@ -1,6 +1,6 @@
 /*
 * Message Queues are persitent, which means that if thy are not closed explicitly, they stay around even after program termination
-* In the terminal: use ipcs to get info on opend message-quese; and ipcrm -X key or ipcrm -x ip to remove unwanted message-queues
+* In the terminal: use ipcs to get info on opend message-quese; and ipcrm -Q key or ipcrm -q ip to remove unwanted message-queues
 * (can be looked up in OneNote)
 *
 *
@@ -294,17 +294,17 @@ int main (int argc, char *argv[])
 		switch ( *(child_PID + i) ) {
 		/**************************** ERROR **************************************************/
 					case -1:		/*fork() failed*/
-						fprintf (stderr, "fork %d failed\n", i);
+						fprintf (stderr, "master->chld fork %d failed\n", i);
 						break;
 		/**************************** CHILD **************************************************/
 					case 0:			/*we are inside child*/
 						if(FS_DEBUG)
-							printf ("#child\t**DEBUG**\tchild %i with PID: %ld created\n", i, *(child_PID + i));
+							printf ("#child\t**DEBUG**\tchild %i with PID: %ld created\n", i, (long) getpid());
 
 							//should I setup handler for SIGTERM??
 							while(1) { //run loop and calcualte pixels till you get terminated via SIGTERM or SIGKILL
 								errno = 0;
-								if( (msgrcv(Slave_Master_Queue_ID, &MS_message, (sizeof(MS_message) - sizeof(long)), 1, 0)) < 0)
+								if( (msgrcv(Master_Slave_Queue_ID, &MS_message, (sizeof(MS_message) - sizeof(long)), 1, 0)) < 0)
 								{
 									if(errno != EAGAIN) //SM M-queue is empty
 									{
@@ -314,6 +314,8 @@ int main (int argc, char *argv[])
 									}
 								}
 								//calculate pixel
+								//SM_message.filtered_pixel = filter(&kernel[0], &MS_message);
+								SM_message.pixel_index = MS_message.pixel_index;
 								SM_message.filtered_pixel = MS_message.pixel_pkg[4]; //just echo image
 								//return filtered pixel
 								errno = 0;
@@ -336,77 +338,80 @@ int main (int argc, char *argv[])
 		#endif
 	}
 
-//enter for loop to send/recieve packages to/from children
-framed_ppm_array = framed_ppm_array+(img_width+2)+1; //begin at first pixel inside frame
-int col_cnt = 1;
-for (int i = 0; i < (img_width * img_height); i++)
+//for again ->master_send and master_revc
+	pid_t master_snd = 0;
+	master_snd = fork();
+	switch(master_snd)
+	{
+		/**************************** ERROR **************************************************/
+					case -1:		/*fork() failed*/
+						fprintf (stderr, "master->master fork failed\n");
+						break;
+		/**************************** Master snd **************************************************/
+					case 0:			/*we are inside child*/
+						if(FS_DEBUG)
+							printf ("#master_snd\t**DEBUG**\tmaster_sendd; PID = %ld\n", i, (long) getpid());
+							//send packages
+							//enter for loop to send/recieve packages to/from children
+							framed_ppm_array = framed_ppm_array+(img_width+2)+1; //begin at first pixel inside frame
+							int col_cnt = 0;
+							for (int i = 0; i < (img_width * img_height); i++)
+							{
+
+									if(col_cnt == img_width)
+									{
+										col_cnt = 0; //reset col_cnt
+										framed_ppm_array = framed_ppm_array + 2; //skip frame pixels
+									}
+									col_cnt++;
+								//load up package to send to children
+									MS_message.mtype = 1;
+									MS_message.pixel_index = i;
+									MS_message.pixel_pkg[0] = *(framed_ppm_array - (img_width+2) -1);
+									MS_message.pixel_pkg[1] = *(framed_ppm_array - (img_width+2) );
+									MS_message.pixel_pkg[2] = *(framed_ppm_array - (img_width+2) +1);
+									MS_message.pixel_pkg[3] = *(framed_ppm_array -1);
+									MS_message.pixel_pkg[4] = *(framed_ppm_array);
+									MS_message.pixel_pkg[5] = *(framed_ppm_array + 1);
+									MS_message.pixel_pkg[6] = *(framed_ppm_array + (img_width+2) -1);
+									MS_message.pixel_pkg[7] = *(framed_ppm_array + (img_width+2) );
+									MS_message.pixel_pkg[8] = *(framed_ppm_array + (img_width+2) +1);
+
+							//msgsnd in blocking-mode
+									if( (msgsnd(Master_Slave_Queue_ID, &MS_message, (sizeof(MS_message) - sizeof(long)), 0)) < 0)
+									{
+												printf("ABBORT sending\n");
+												exit(EXIT_FAILURE);
+									}
+									else{
+										printf("pixel sent to child\n");
+									}
+
+									framed_ppm_array++; //jump to next pixel
+								//read pixel-packages from Slave_Master -msq till MQ is empty
+
+							}
+							printf("master_snd terminates\n");
+							//master_send terminates succesfull if all packages were sent
+							exit(EXIT_SUCCESS);
+		/***************************** Master Receive ***********************************************/
+			default:		/*no error + not inside master_snd->must be inside master_rvc*/
+				break;
+	}
+
+
+for(int i = 0; i < img_width*img_height; i++) //get all filtered pixels
 {
-		col_cnt++;
-		if(col_cnt == img_width)
-		{
-			col_cnt = 1; //reset col_cnt
-			framed_ppm_array = framed_ppm_array + 2; //skip frame pixels
-			continue; //skip rest of for-loop and go back to loop start
-		}
-	//load up package to send to children
-		MS_message.mtype = 1;
-		MS_message.pixel_index = i;
-		MS_message.pixel_pkg[0] = *(ppm_array - (img_width+2) -1);
-		MS_message.pixel_pkg[1] = *(ppm_array - (img_width+2) );
-		MS_message.pixel_pkg[2] = *(ppm_array - (img_width+2) +1);
-		MS_message.pixel_pkg[3] = *(ppm_array -1);
-		MS_message.pixel_pkg[4] = *(ppm_array);
-		MS_message.pixel_pkg[5] = *(ppm_array + 1);
-		MS_message.pixel_pkg[6] = *(ppm_array + (img_width+2) -1);
-		MS_message.pixel_pkg[6] = *(ppm_array + (img_width+2) );
-		MS_message.pixel_pkg[6] = *(ppm_array + (img_width+2) +1);
-
-		try_again:
-		errno = 0; //reset errno
-		if( (msgsnd(Master_Slave_Queue_ID, &MS_message, (sizeof(MS_message) - sizeof(long)), IPC_NOWAIT)) < 0)
-		{
-			if(errno == EAGAIN) //MS message queue is full
-			{
-				//read Slave_master M-queues
-				errno = 0;
-				if( (msgrcv(Slave_Master_Queue_ID, &SM_message, (sizeof(SM_message) - sizeof(long)),0, IPC_NOWAIT)) < 0)
-				{
-					if(errno == EAGAIN) //SM M-queue is empty
-					{
-						//jump up and try to send message again
-						goto try_again;
-					}
-					else{
-						fprintf(stderr,"--ERROR--\treading from Slave_Master M-queue failed\n");
-						//close msqs
-						exit(EXIT_FAILURE);
-					}
-				}
-				else{ //retrieve pixel info
-						*(ppm_array + SM_message.pixel_index) = SM_message.filtered_pixel;
-				}
-			}
-			else{
-				fprintf(stderr,"--ERROR--\twriting to MAster_Slave M-queue failed\n");
-				//close msqs
-				exit(EXIT_FAILURE);
-			}
-		}
-			//check if queue isnt full
-			//true: send package
-			//flase: sleep() and try again -> if 4 sek fail ->term PROGRAM
-
-		//check if i could reap package fromn other queues
-			//open package
-			//*(ppm_array + pixel_index) = retunred_value;
-				//brauch also gesamt 2 allokierte arrays
-
-		//
-		framed_ppm_array++; //jump to next pixel
-	//read pixel-packages from Slave_Master -msq till MQ is empty
-
+	if( (msgrcv(Slave_Master_Queue_ID, &SM_message, (sizeof(SM_message) - sizeof(long)),0, 0)) < 0)
+	{
+		printf("ABBORT MQ master-rcv\n");
+		exit(EXIT_FAILURE);
+	}
+	else{
+		printf("pixel received from child\n");
+		*(ppm_array + SM_message.pixel_index) = SM_message.filtered_pixel;
+	}
 }
-
 //send SIGTERM to children and wait for their termination + check termination-status
 //loop for No_procs
 //kill(*(child_PID + i, SIGTERM);
@@ -417,7 +422,17 @@ for (int i = 0; i < (img_width * img_height); i++)
 /**print_ppm(FILE *output_ppm, s_pixel *ppm_array, int img_depth, int img_width, height, kernel);**/
 print_ppm (output_ppm, ppm_array, img_depth, img_width, img_height, &kernel[0]);
 
-
+//close message Queues
+	if( (msgctl(Master_Slave_Queue_ID, IPC_RMID, NULL)) < 0)
+	{
+		fprintf(stderr,"closing Master-Slave M-queue failed\n");
+		exit(EXIT_FAILURE);
+	}
+	if( (msgctl(Slave_Master_Queue_ID, IPC_RMID, NULL)) < 0)
+	{
+		fprintf(stderr,"closing Slave-Master M-queue failed\n");
+		exit(EXIT_FAILURE);
+	}
 
 return 0;
 
