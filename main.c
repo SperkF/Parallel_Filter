@@ -222,7 +222,7 @@ int main (int argc, char *argv[])
 	if (p_flag == 0) {
 		No_procs = get_nprocs(); /*return number of processors(cores) configured on system*/
 #if FS_DEBUG
-		fprintf (stdout, "**DEBGU**\tRun with system defined procs, No_procs: %d\n", No_procs);
+		fprintf (stdout, "**DEBGUG**\tRun with system defined procs, No_procs: %d\n", No_procs);
 #endif
 	}
 
