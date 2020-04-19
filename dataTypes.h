@@ -4,8 +4,8 @@
 /*
 * DEFINES used in mulitple files
 */
-#define FS_DEBUG 1
-#define KERNEL_FS_DEBUG 1
+#define FS_DEBUG 0
+#define KERNEL_FS_DEBUG 0
 
 /*
 * USER-DEFINED DATATYPES

@@ -1,6 +1,5 @@
 
-#this is a commetn
+#this is a comment
 
 #ignore all .txt and alll .ppm files
 *.ppm
-*.txt

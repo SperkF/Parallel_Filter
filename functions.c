@@ -1,17 +1,5 @@
 
-//das dann auch noch in eigenen Header?
-
-#include "dataTypes.h"
-#include <ctype.h>
-#include <stdio.h>
-#include <string.h>
-#include <stdlib.h>
-#include <errno.h>
-#include <time.h>  //to work with time()
-#include <math.h> //to work with time() ->dont foget to link with -lm
-
-#define MAX_STRING_LEN 20
-
+#include "functions.h"
 
 s_pixel filter(int *kernel, s_pixel *pixel,int color_depth)
 {
@@ -474,17 +462,15 @@ s_pixel *create_frame(s_pixel *unframed_ppm, const u_int img_height, const u_int
 * OUTPUT
 *
 */
-//function returns: pointer to array-space that was freed at the end of function ->pointer should point to NULL now
 //inside function do:
     //print ppm-head
     //print pixels with help_pointer
-    //fclose(output_ppm)
-    //free() allocated array space at the end and set pointer array to point to NULL (this pointer is also returned then)
+    //fclose(<passed FILE pointer>)
 /*print_ppm()
 general syntax:
     - s_pixel *print_ppm(FILE *output_ppm, const s_pixel *array, const u_int color_depth, const u_int width, const u_int height)
 paramters::
-    - output_ppm...FILE pointer to fiel that the ppm-image should be writen to
+    - output_ppm...FILE pointer to file that the ppm-image should be writen to
     - array...holds the pixel values of the array that is going to be printed to output_ppm
     - color_depth...color_depth of ppm-image
     - width/height...widht and height of ppm-image
@@ -576,3 +562,25 @@ void print_ppm(FILE *output_ppm, s_pixel *array, const u_int color_depth, const 
     printf("\tPRINT_PPM exited\n");
 #endif
 }
+
+/*
+*
+* TERMINATE DEL MQs
+*
+*/
+//close message Queues and terminate
+void term_with_MQ_del(key_t Master_Slave_Queue_ID, key_t Slave_Master_Queue_ID)
+{
+  if( (msgctl(Master_Slave_Queue_ID, IPC_RMID, NULL)) < 0)
+  {
+    fprintf(stderr,"##NOTE##\tclosing Master-Slave M-queue before termination failed\n");
+  }
+  if( (msgctl(Slave_Master_Queue_ID, IPC_RMID, NULL)) < 0)
+  {
+    fprintf(stderr,"##NOTE##\tclosing Slave-Master M-queue before termination failed\n");
+  }
+  exit(EXIT_FAILURE);
+}
+/*
+* EOF
+*/
