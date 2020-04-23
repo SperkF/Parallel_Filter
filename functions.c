@@ -1,14 +1,93 @@
 
 #include "functions.h"
 
+
+//upon function call close all opned messege-ques and terminate with accoring term_status
+void exit_kill_mqs(int exit_status, struct mq_info *pHead)
+{
+  struct mq_info *p_free = pHead;
+  if(pHead == NULL) //no mqs were opend
+  {
+    fprintf(stderr,"NOTE: function exit_kill_mqs() was called with empty list\n");
+    exit(exit_status);
+  }
+  while(1)
+  {
+  if(pHead->pNext != NULL)
+  {
+     if( (msgctl(pHead->mq_id, IPC_RMID, NULL)) == -1)
+     {
+       fprintf(stderr,"closing of Messageques failed, close manualy with ipcs and ipcrm -q <key>\n");
+       exit(EXIT_FAILURE);
+     }
+    pHead = pHead->pNext;//let pHead point to next list entry
+  }
+  else{
+    break;
+  }
+  }
+  //free complet sll
+  free(p_free);
+  exit(exit_status);
+}
+
+
+
+
+
+
+struct mq_info *add_open_mq_to_list(struct mq_info *pHead, int mq_id)
+{
+    //local variables
+    struct mq_info *pNew = NULL;
+
+    if (pHead == NULL) //lege erstes Blatt der linked-list an
+    {
+        pNew = (struct mq_info*)calloc(1, sizeof(struct mq_info));
+        if(pNew == NULL) //check if allocation worked
+        {
+            fprintf(stderr,"ERROR: calloc failed\n");
+            exit(EXIT_FAILURE);
+        }
+
+        //fill in elements
+        pNew->mq_id = mq_id;
+        pHead = pNew; //let Head pointer point to new ledger
+    /**/
+        pNew->pNext = NULL; //not really necessary ->calloc() already wrote a 0 to all elements so pNext points to NULL anyway
+    /**/
+    }
+
+    else
+    {
+        pNew = (struct mq_info*)calloc(1, sizeof(struct mq_info));
+        if(pNew == NULL) //check if allocation worked
+        {
+            fprintf(stderr,"ERROR: calloc failed\n");
+        }
+        //fill in new element
+        //fill in elements
+        pNew->mq_id = mq_id;
+        pNew->pNext = pHead; //let pNext of new ledger point to the previous ledger
+        pHead = pNew; //let head pointer point to new ledger instead of previous one
+
+    }
+
+    return pHead;
+}
+
+
+
+
 s_pixel filter(int *kernel, s_pixel *pixel,int color_depth)
 {
-  double value = 0;
   s_pixel return_pixel;
+  double value = 0;
+
 /*RED PIXEL*/
   for(int i = 0; i < 9; i++)
   {
-      value = ((double)((pixel + i)->red)/255) * *(kernel + i) + value;
+      value = (((double)((pixel + i)->red)/255) * *(kernel + i)) + value;
   }
   value = round(value*255);
   if(value < 0)
@@ -21,7 +100,7 @@ s_pixel filter(int *kernel, s_pixel *pixel,int color_depth)
   /*GREEN PIXEL*/
     for(int i = 0; i < 9; i++)
     {
-        value = ((double)((pixel + i)->green)/255)* *(kernel + i) + value;
+        value = (((double)((pixel + i)->green)/255)* *(kernel + i)) + value;
     }
     value = round(value*255);
     if(value < 0)
@@ -34,7 +113,7 @@ value = 0; //reset value
     /*BLUE PIXEL*/
       for(int i = 0; i < 9; i++)
       {
-          value = ((double)((pixel + i)->blue)/255) * *(kernel + i) + value;
+          value = (((double)((pixel + i)->blue)/255) * *(kernel + i)) + value;
       }
       value = round(value*255);
       if(value < 0)
@@ -43,8 +122,11 @@ value = 0; //reset value
         value = color_depth;
       return_pixel.blue = value;
 
+  //return_pixel = *(pixel + 4);
+
       return return_pixel;
 }
+
 
 
 /*

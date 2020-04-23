@@ -66,8 +66,8 @@ int main (int argc, char *argv[])
 //to work with strtol()
 	char *strtol_end = NULL;
 //varaibles to process ppm picture
-	s_pixel *ppm_array = NULL, *h_ppm_array = NULL;
-	s_pixel *framed_ppm_array = NULL, *h_framed_ppm_array = NULL;
+	s_pixel *ppm_array = NULL;
+	s_pixel *framed_ppm_array = NULL;
 	u_int img_depth = 0, img_width = 0, img_height = 0;
 
 	//-------getopt() to process input---------------------
@@ -89,8 +89,9 @@ int main (int argc, char *argv[])
 			//do some furhter errorchecking
 			//value was to big, to small, or NULL-pointer was passed to strtol
 			if (errno != 0) {
-				perror ("--ERROR--\tstrtol(-p), perror:");
+				perror ("strtol(-p), perror:");
 			}
+
 			//empty string was passed to strtol()
 			if (*optarg == '\0') {
 				fprintf (stderr, "--ERROR--\t empty pointer was passed to strtol()\n");
@@ -231,8 +232,6 @@ int main (int argc, char *argv[])
 		fprintf (stderr, "**ERROR**:\t read_from_ppm() failed\n");
 		exit (EXIT_FAILURE);
 	}
-	h_ppm_array = ppm_array;
-
 #if FS_DEBUG
 	FILE *debug_input = NULL;
 	debug_input = fopen ("debug_input.ppm", "w");
@@ -244,15 +243,15 @@ int main (int argc, char *argv[])
 		fprintf (stderr, "**ERROR**:\t create_frame() failed\n");
 		exit (EXIT_FAILURE);
 	}
-	h_framed_ppm_array = framed_ppm_array;
 #if FS_DEBUG
 	FILE *debug_framed = NULL;
 	debug_framed = fopen ("debug_framed.ppm", "w");
 	print_ppm (debug_framed, framed_ppm_array, img_depth, img_width + 2, img_height + 2, &kernel[0]);
 #endif
 
+
 	/*setup everything for the message queues*/
-/*************************** FROM NOW ON use term_with_MQ_del() to terminate program in case of ERROR ********************/
+	struct mq_info *pHead_open_Queues = NULL;
 	int Master_Slave_Queue_ID = 0;
 	int Slave_Master_Queue_ID = 0;
 	key_t mq_key = IPC_PRIVATE; //we are guaranteed to get a unique msq-key (no "collision" with other msqs on the system)
@@ -270,15 +269,18 @@ int main (int argc, char *argv[])
 		}
 		exit (EXIT_FAILURE);
 	}
+	pHead_open_Queues = add_open_mq_to_list(pHead_open_Queues, Master_Slave_Queue_ID);
+
+
 	Slave_Master_Queue_ID = msgget (mq_key, mq_perms | mq_flags);
 	if (Slave_Master_Queue_ID == -1) {
 		fprintf (stderr, "**ERROR**:\tSlave->Master MQ failed\n");
 		if (msgctl (Slave_Master_Queue_ID, IPC_RMID, NULL) < 0) {
 			fprintf (stderr, "**ERROR**\t close of MQ failed, lookup with ipcs and close manaly with ipcrm -x ip\n");
 		}
-		term_with_MQ_del(Master_Slave_Queue_ID, Slave_Master_Queue_ID);
+		exit_kill_mqs(EXIT_FAILURE,pHead_open_Queues);
 	}
-
+	pHead_open_Queues = add_open_mq_to_list(pHead_open_Queues, Slave_Master_Queue_ID);
 
 	/*fork() to create child processes*/
 //child_PID takes pid of forked-off child (No_procs ammount of children will be created)
@@ -286,8 +288,10 @@ int main (int argc, char *argv[])
 	child_PID = (pid_t*) calloc (No_procs, sizeof (pid_t));
 	if (child_PID == NULL) {
 		fprintf (stderr, "calloc for PID_child failed\n");
-		term_with_MQ_del(Master_Slave_Queue_ID, Slave_Master_Queue_ID);
+		exit_kill_mqs(EXIT_FAILURE,pHead_open_Queues);
 	}
+
+
 
 //fork No_porcs times
 	for (int i = 0; i < No_procs; i++) {
@@ -296,7 +300,6 @@ int main (int argc, char *argv[])
 		/**************************** ERROR **************************************************/
 					case -1:		/*fork() failed*/
 						fprintf (stderr, "master->chld fork %d failed\n", i);
-						term_with_MQ_del(Master_Slave_Queue_ID, Slave_Master_Queue_ID);
 						break;
 		/**************************** CHILD **************************************************/
 					case 0:			/*we are inside child*/
@@ -304,36 +307,38 @@ int main (int argc, char *argv[])
 							printf ("#child\t**DEBUG**\tchild %i with PID: %ld created\n", i, (long) getpid());
 
 							//should I setup handler for SIGTERM??
-							while(1) { //run loop and calcualte pixels till you get terminated via SIGTERM or SIGKILL
+							while(1) { //run loop, read from M-q calcualte pixels and return via m-q till you get terminated via SIGTERM or SIGKILL
 								errno = 0;
-								if( (msgrcv(Master_Slave_Queue_ID, &MS_message, (sizeof(MS_message) - sizeof(long)), 1, 0)) < 0)
+								if( (msgrcv(Master_Slave_Queue_ID, &MS_message, (sizeof(MS_message) - sizeof(long)), 1, 0)) == -1)
 								{
-									if(errno != EAGAIN) //SM M-queue is empty
+									if(errno != 0) //SM M-queue is empty
 									{
 										#if FS_DEBUG
 											fprintf(stderr,"--ERROR--\tread from MAster_Slave MQ failed in child PID:%ld terminated now\n",(long)getpid());
 										#endif
 										//close msqs
-										term_with_MQ_del(Master_Slave_Queue_ID, Slave_Master_Queue_ID);
+										exit_kill_mqs(EXIT_FAILURE,pHead_open_Queues);
 									}
 								}
+								SM_message.mtype = 1;
 								//calculate pixel
 								SM_message.pixel_index = MS_message.pixel_index;
 								SM_message.filtered_pixel = filter(&kernel[0], MS_message.pixel_pkg, img_depth);
-								//SM_message.filtered_pixel = filter(&kernel[0], &MS_message);
+
 							//	SM_message.pixel_index = MS_message.pixel_index;
-							//	SM_message.filtered_pixel = MS_message.pixel_pkg[4]; //just echo image
+							//  SM_message.filtered_pixel = MS_message.pixel_pkg[4]; //just echo image
 								//return filtered pixel
 								errno = 0;
-								if( (msgsnd(Slave_Master_Queue_ID, &SM_message, (sizeof(SM_message) - sizeof(long)), 0)) < 0)
+								if( (msgsnd(Slave_Master_Queue_ID, &SM_message, (sizeof(SM_message) - sizeof(long)), 0)) == -1)
 								{
-									if(errno != EAGAIN)
+									if(errno != 0)
 									{
 										#if FS_DEBUG
+											perror("Slave_MAster MQ perror:\n");
 											fprintf(stderr,"--ERROR--\twrite tp Slave_Master MQ failed in child PID:%ld terminated now\n",(long)getpid());
 										#endif
 										//close msqs??
-										term_with_MQ_del(Master_Slave_Queue_ID, Slave_Master_Queue_ID);
+										exit_kill_mqs(EXIT_FAILURE,pHead_open_Queues);
 									}
 								}
 							}
@@ -342,39 +347,66 @@ int main (int argc, char *argv[])
 				break;
 		}
 		#if FS_DEBUG
-			printf("inside for-loop\n");
+			printf("inside for-loop to fork() of child processes\n");
 		#endif
 	}
 
-//fork() again ->master_send and master_revc
-	pid_t master_snd = 0;
-	master_snd = fork();
-	switch(master_snd)
-	{
-		/**************************** ERROR **************************************************/
-					case -1:		/*fork() failed*/
-						fprintf (stderr, "master->master fork failed\n");
-						term_with_MQ_del(Master_Slave_Queue_ID, Slave_Master_Queue_ID);
-						break;
-		/**************************** Master snd **************************************************/
-					case 0:			/*we are inside child*/
-						if(FS_DEBUG)
-						{
-							printf ("#master_snd\t**DEBUG**\tmaster_send; PID = %ld\n", (long) getpid());
-						}
+int msgrcv_ret = 2;
 							//send packages
 							//enter for loop to send/recieve packages to/from children
-							framed_ppm_array = framed_ppm_array+(img_width+2)+1; //begin at first pixel inside frame
+							framed_ppm_array = framed_ppm_array+(img_width)+3; //begin at first pixel inside frame
 							int col_cnt = 0;
-							for (int i = 0; i < (img_width * img_height); i++)
+
+							for (int i = 0; i < (img_width * img_height);)
 							{
+								if(col_cnt == img_width)
+								{
+									col_cnt = 0; //reset col_cnt
+									framed_ppm_array = framed_ppm_array + 2; //skip frame pixels
+								}
+								col_cnt++;
+
+							//load up package to send to children
+								MS_message.mtype = 1;
+								MS_message.pixel_index = i;
+								MS_message.pixel_pkg[0] = *(framed_ppm_array - (img_width+2) -1);
+								MS_message.pixel_pkg[1] = *(framed_ppm_array - (img_width+2) );
+								MS_message.pixel_pkg[2] = *(framed_ppm_array - (img_width+2) +1);
+								MS_message.pixel_pkg[3] = *(framed_ppm_array -1);
+								MS_message.pixel_pkg[4] = *(framed_ppm_array);
+								MS_message.pixel_pkg[5] = *(framed_ppm_array + 1);
+								MS_message.pixel_pkg[6] = *(framed_ppm_array + (img_width+2) -1);
+								MS_message.pixel_pkg[7] = *(framed_ppm_array + (img_width+2) );
+								MS_message.pixel_pkg[8] = *(framed_ppm_array + (img_width+2) +1);
+
+								errno = 0;
+								while( (msgsnd(Master_Slave_Queue_ID, &MS_message, (sizeof(MS_message) - sizeof(long)), IPC_NOWAIT)) == -1)
+								{
+									if(errno != EAGAIN && errno != ENOMSG)
+									{
+											perror("msgsnd(Master_Slave) in parent failed:\n");
+											exit_kill_mqs(EXIT_FAILURE,pHead_open_Queues);
+									}
+	     						while( (msgrcv(Slave_Master_Queue_ID, &SM_message, (sizeof(SM_message) - sizeof(long)), 1, IPC_NOWAIT)) != -1)
+									{
+	         						*(ppm_array + SM_message.pixel_index) = SM_message.filtered_pixel;
+	     						}
+								}
+								i++;
+								framed_ppm_array++;
+
+/*
+								if(Master_slave_Queue_full == 0)
+								{
 
 									if(col_cnt == img_width)
 									{
 										col_cnt = 0; //reset col_cnt
-										framed_ppm_array = framed_ppm_array + 2; //skip frame pixels
+										framed_ppm_array = framed_ppm_array + 3; //skip frame pixels
+										flag = 1;
 									}
 									col_cnt++;
+
 								//load up package to send to children
 									MS_message.mtype = 1;
 									MS_message.pixel_index = i;
@@ -388,49 +420,87 @@ int main (int argc, char *argv[])
 									MS_message.pixel_pkg[7] = *(framed_ppm_array + (img_width+2) );
 									MS_message.pixel_pkg[8] = *(framed_ppm_array + (img_width+2) +1);
 
-							//msgsnd in blocking-mode
-									if( (msgsnd(Master_Slave_Queue_ID, &MS_message, (sizeof(MS_message) - sizeof(long)), 0)) < 0)
+							//msgsnd in nonblocking-mode send one package and move on
+							errno = 0;
+									if( (msgsnd(Master_Slave_Queue_ID, &MS_message, (sizeof(MS_message) - sizeof(long)), IPC_NOWAIT)) == -1)
 									{
+										if(errno == EAGAIN || errno == ENOMSG)
+										{
+											Master_slave_Queue_full = 1; //set flag
+										}
+										else{
+											perror("msgsnd:\n");
 												printf("ABBORT sending\n");
-												term_with_MQ_del(Master_Slave_Queue_ID, Slave_Master_Queue_ID);
+												exit_kill_mqs(EXIT_FAILURE,pHead_open_Queues);
+										}
 									}
-
-									framed_ppm_array++; //jump to next pixel
-								//read pixel-packages from Slave_Master -msq till MQ is empty
+									#if FS_DEBUG_MQ_CHATTER
+										printf("sent package to child Master_Slave\n");
+									#endif
+									#if FS_DEBUG_COM_SUM
+										com_sum = com_sum + MS_message.pixel_index;
+										snd_cnt++;
+									#endif
+										if(flag == 1)
+										{
+											flag = 0;
+										}
+										else{
+											framed_ppm_array++; //jump to next pixel
+										}
+										i++;
 
 							}
-							#if FS_DEBUG
-								printf("**DEBUG**\tmaster_snd terminates\n");
-							#endif
-							//master_send terminates succesfull if all packages were sent
-							raise(SIGTERM); //send yourself SIGTERM signal to terminate
-		/***************************** Master Receive ***********************************************/
-			default:		/*no error + not inside master_snd->must be inside master_rvc*/
-				break;
-	}
 
-//istall signal-handler for SIGCHLD-signal to catch all termiantions
+							//read pixel-packages from Slave_Master -msq till MQ is empty
+							else  // if(Master_slave_Queue_full)
+							{
+								errno = 0;
+								while( (msgrcv(Slave_Master_Queue_ID, &SM_message, (sizeof(SM_message) - sizeof(long)), 1, IPC_NOWAIT)) != -1)
+								{
+									#if FS_DEBUG_MQ_CHATTER
+									printf("msgrcv_1 parent from child Slave_Master\n");
+									#endif
+									//perror("magrcv Slave_MAster failed\t");
+									*(ppm_array + SM_message.pixel_index) = SM_message.filtered_pixel;
+									#if FS_DEBUG_COM_SUM
+									com_sum = com_sum - SM_message.pixel_index;
+									rcv_cnt++;
+									#endif
+								}
+								if(errno != EAGAIN && errno != ENOMSG)
+								{
+									perror("");
+									fprintf(stderr,"msgrcv Slave_Master failed\n");
+									exit_kill_mqs(EXIT_FAILURE,pHead_open_Queues);
+								}
+								Master_slave_Queue_full = 0; //clear flag
+							}
+							*/
+							}
+
+//get remaining pixels
+							errno = 0;
+							while( (msgrcv(Slave_Master_Queue_ID, &SM_message, (sizeof(SM_message) - sizeof(long)), 1, IPC_NOWAIT)) != -1)
+							{
+								*(ppm_array + SM_message.pixel_index) = SM_message.filtered_pixel;
+							}
+							if(errno != 0 && errno != EAGAIN && errno != ENOMSG) //readig failed for error other than empty Queue
+							{
+								perror("failed to retrieve all filtered-pixels from queue\n");
+								printf("ABBORT sending\n");
+								exit_kill_mqs(EXIT_FAILURE,pHead_open_Queues);
+							}
 
 
 
-for(int i = 0; i < img_width*img_height; i++) //get all filtered pixels
-{
-	if( (msgrcv(Slave_Master_Queue_ID, &SM_message, (sizeof(SM_message) - sizeof(long)),0, 0)) < 0)
-	{
-		printf("ABBORT MQ master-rcv\n");
-		term_with_MQ_del(Master_Slave_Queue_ID, Slave_Master_Queue_ID);
-	}
-	else{
-		*(ppm_array + SM_message.pixel_index) = SM_message.filtered_pixel;
-	}
-}
+
 
 //save content of filtered image to output_ppm
 /**print_ppm(FILE *output_ppm, s_pixel *ppm_array, int img_depth, int img_width, height, kernel);**/
 print_ppm (output_ppm, ppm_array, img_depth, img_width, img_height, &kernel[0]);
 
 
-//master_snd terminates itself, the other child we need to terminate specifically
 for(int i = 0; i < No_procs; i++)
 {
 	kill(*(child_PID + i), SIGTERM); //terminate a random child proces
@@ -439,7 +509,7 @@ for(int i = 0; i < No_procs; i++)
 	//waitpid() in non-blocking-mode
 	int term_status = 0;
 	pid_t term_proc = 0;
-for(int j = 0; j < No_procs+1; j++)
+for(int j = 0; j < No_procs; j++)
 {
 	term_proc = waitpid(-1, &term_status, 0);
 	if(term_proc < 0)
@@ -457,28 +527,27 @@ for(int j = 0; j < No_procs+1; j++)
 		}
 		else{
 			fprintf(stderr,"--ERROR--\tproces PID: %ld terminated in unexpected manner\n",(long)term_proc);
-			term_with_MQ_del(Master_Slave_Queue_ID, Slave_Master_Queue_ID);
+			exit_kill_mqs(EXIT_FAILURE,pHead_open_Queues);
 		}
 	}
 	}
 
 
-	//close message Queues
-		if( (msgctl(Master_Slave_Queue_ID, IPC_RMID, NULL)) < 0)
-		{
-			fprintf(stderr,"closing Master-Slave M-queue failed\n");
-			exit(EXIT_FAILURE);
-		}
-		if( (msgctl(Slave_Master_Queue_ID, IPC_RMID, NULL)) < 0)
-		{
-			fprintf(stderr,"closing Slave-Master M-queue failed\n");
-			exit(EXIT_FAILURE);
-		}
+/*
+//close message Queues
+	if( (msgctl(Master_Slave_Queue_ID, IPC_RMID, NULL)) < 0)
+	{
+		fprintf(stderr,"closing Master-Slave M-queue failed\n");
+		exit(EXIT_FAILURE);
+	}
+	if( (msgctl(Slave_Master_Queue_ID, IPC_RMID, NULL)) < 0)
+	{
+		fprintf(stderr,"closing Slave-Master M-queue failed\n");
+		exit(EXIT_FAILURE);
+	}
+	*/
 
-	//free previously allocated memory ->was allocated inside function calls
-	free(h_ppm_array);
-	free(h_framed_ppm_array);
-
+exit_kill_mqs(EXIT_SUCCESS,pHead_open_Queues);
 return 0;
 
 }
@@ -490,5 +559,4 @@ void print_help (void)
 	fprintf (stdout, "./img_filter [-p No_processes] -k kernel -i input_img -o output_img [-h]\n");
 	fprintf (stdout, "Arguments inside brackets are optional\n\n");
 	fprintf (stdout, "**************************************************************************\n");
-	exit (EXIT_FAILURE);
 }

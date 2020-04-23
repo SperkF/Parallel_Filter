@@ -5,7 +5,8 @@
 * DEFINES used in mulitple files
 */
 #define FS_DEBUG 0
-#define KERNEL_FS_DEBUG 0
+#define FS_DEBUG_MQ_CHATTER 0
+#define FS_DEBUG_COM_SUM 1
 
 /*
 * USER-DEFINED DATATYPES
@@ -35,5 +36,11 @@ typedef struct {
   int pixel_index;
   s_pixel filtered_pixel; //pixel package to filter
 } slave_master_mq_pkg;
+
+
+struct mq_info{
+  int mq_id;
+  struct mq_info *pNext;
+};
 
 #endif //_dataTypes_
