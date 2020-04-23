@@ -12,6 +12,7 @@
 #include <math.h> //to work with time() ->dont foget to link with -lm
 #include <sys/types.h> // for message-queue key_type,..
 #include <sys/msg.h>   // for message-queue
+#include <stdint.h> //uint8_t definition
 
 //defines
 #define MAX_STRING_LEN 20

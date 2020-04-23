@@ -6,7 +6,8 @@
 */
 #define FS_DEBUG 0
 #define FS_DEBUG_MQ_CHATTER 0
-#define FS_DEBUG_COM_SUM 1
+#define FS_DEBUG_COM_SUM 0
+#define INPUT_FS_DEBUG 0
 
 /*
 * USER-DEFINED DATATYPES

@@ -134,8 +134,8 @@ value = 0; //reset value
 * INPUT
 *
 */
-//returns pointer to first position of array whose elements represent all the pixels of the ppm
-//array-space is allocated inside function ->dont forget to free inside calling routine
+//parameters: input_ppm..pointer to FILE to read from; color_depth, witdh, and height ->quasi returns (take poiter, and manipulate value at position)
+//returns pointer to first position of array whose elements represent all the pixels of the ppm (array-space is allocated inside function)
 s_pixel *read_from_ppm(FILE *input_ppm, u_int *color_depth, u_int *width, u_int *height)
 {
 #if FS_DEBUG
@@ -149,6 +149,7 @@ s_pixel *read_from_ppm(FILE *input_ppm, u_int *color_depth, u_int *width, u_int 
     char *str_end = NULL; //to work with strtoul
     s_pixel *ppm_as_array = NULL;
     char arg[MAX_STRING_LEN]; //holds each word of the ppm-file during reading
+
 //read throught the ppm-file skip comments, process header and pixels
     while ((c = fgetc(input_ppm)) != EOF)
     {
@@ -495,7 +496,6 @@ error-flags:
 #endif
     return ppm_as_array; //return pointer to first pos. of array that holds all pixel infos of the input ppm-file
 }
-
 /*
 *
 * CALCULATIONS
