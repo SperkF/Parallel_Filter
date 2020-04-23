@@ -20,11 +20,13 @@ typedef struct{
   u_int blue;
 } s_pixel;
 
+/*
 typedef struct{
   int depth;
   int width;
   int height;
 } s_img;
+*/
 
 typedef struct {
   long mtype;
